@@ -3,7 +3,8 @@
 .venv_server/
 env/
 venv/
-
+scripts/.venv_client/
+MODULAR-RAG-MCP-SERVER/.venv
 # 忽略 Python 缓存文件
 __pycache__/
 *.py[cod]
