@@ -1,0 +1,72 @@
+你现在是一位拥有 10 年经验的资深 AI 架构师。请阅读以下需求，为我编写一份极其严谨、专业、具有工程化落地指导意义的 DEV_SPEC.md 文档。
+
+我要做一个基于 MCP 协议与 LangGraph 的金融投研多 Agent 系统。这个系统将作为应用层（Client端），与我之前开发的**Modular RAG MCP Server（底层知识库）**进行联动。
+
+项目定位与特色
+这个项目不仅是一个独立的多 Agent 应用，更是为了在简历和面试中与我的 RAG 项目形成“全栈 AI 架构组合拳”。
+它主打“厚基座，薄应用”的设计理念：将沉重的文档解析与向量检索下沉到 MCP Server，而本系统专注于多 Agent 协作流、意图路由、外部 API 调度与状态持久化。
+项目代码需保持轻量（核心逻辑 300-500 行），但架构必须体现高内聚低耦合，方便在面试中展示高级工程化思维。
+
+核心架构约束与技术方向（必须在文档中详细设计）
+1. 严格的数据契约与 State 设计 (LangGraph)：
+
+必须使用 Python 3.10+ 的 typing.TypedDict 或 Pydantic 明确定义图的全局 State。
+
+State 中需包含严谨的字段设计，如 messages (对话历史)、research_intent (解析出的路由意图)、historical_context (A股历史财报数据)、realtime_news (实时舆情数据) 等。
+
+2. 并发编排模型 (Fan-out/Fan-in)：
+
+包含三个核心节点（Nodes）：
+
+Agent A（基本面研究员）：专职查阅历史深度财报。
+
+Agent B（舆情研究员）：专职查阅今日实时新闻与大盘数据。
+
+Agent C（首席分析师 / Summary Node）：聚合信息节点。
+
+Router 机制：必须明确设计动态路由。当用户问题需要宏观与微观结合时，触发 Fan-out（并行发散） 模式，让 Agent A 和 Agent B 并发执行，最后通过 Fan-in（聚合） 模式流转到 Agent C 生成 Markdown 简报。
+
+3. 打通 MCP 协议生态 (Client 侧)：
+
+系统作为 MCP Client，通过 stdio (本地子进程模式) 连接我的本地 RAG Server。
+
+Agent A 通过 Native Function Calling (Tool Use) 触发调用 MCP Server 暴露的 query_knowledge_hub 工具，实现应用推理逻辑与底层知识引擎的完美解耦。
+
+4. 外部 API 与容错降级 (Graceful Degradation)：
+
+Agent B 绑定外部网络搜索工具（如 Tavily / DuckDuckGo），形成 Local (历史) + Web (实时) 的双重事实校验。
+
+架构级容错：必须在设计中包含 Tool Calling 失败的降级策略（例如 Web Search 超时或 MCP Server 未响应时，Agent 能够捕获异常并基于已有 State 继续流转，而不是整个进程崩溃）。
+
+5. 线程级记忆持久化 (Memory Checkpointing)：
+
+引入 LangGraph 的 MemorySaver，结合 SQLite 数据库实现状态图的持久化。
+
+明确说明如何通过 thread_id 追踪跨 Session 交互，支持隔日重启进程后，继续追问同一只股票的上下文。
+
+文档结构与输出规范要求
+请按以下结构组织 DEV_SPEC.md，语言需干练，杜绝废话：
+
+项目概述：设计理念（知识与应用彻底解耦）、项目定位（打造端到端 MCP 生态闭环）。
+
+系统架构图 (重点)：请使用 Mermaid 语法 绘制清晰的系统架构图，必须体现 Client(LangGraph) 与 Server(RAG) 的进程通信关系、State 流转路径以及 SQLite 持久化节点。
+
+状态图定义 (StateGraph)：提供 State 数据结构的伪代码/接口设计，说明 Router 的判定逻辑规则。
+
+核心模块设计：MCP 工具接入层的设计、LLM 模型选型建议、各 Agent 的 System Prompt 设定方向。
+
+健壮性与测试策略：针对 Tool Calling 失败的 Mock 测试策略、State 状态回溯的测试方法。
+
+项目排期 (分阶段拆解)：
+
+Phase 1: 环境与 State 定义
+
+Phase 2: MCP Client 联调 (进程通信)
+
+Phase 3: Agent 节点开发与 Router 连线
+
+Phase 4: 并发逻辑与 SQLite 持久化
+
+Phase 5: 容错处理与 E2E 测试
+
+(每个子任务必须有明确的验收标准)

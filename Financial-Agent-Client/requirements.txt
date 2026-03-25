@@ -1,0 +1,10 @@
+langgraph>=0.0.26
+langchain-core>=0.1.52
+langchain-community>=0.0.38
+dashscope>=1.14.0
+mcp>=0.1.0
+tavily-python>=0.4.0
+streamlit>=1.32.0
+pytest>=8.0.0
+langgraph-checkpoint-sqlite>=1.0.0
+duckduckgo-search>=6.0.0
