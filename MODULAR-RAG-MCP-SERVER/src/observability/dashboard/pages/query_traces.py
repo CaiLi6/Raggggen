@@ -55,13 +55,21 @@ def render() -> None:
         meta = trace.get("metadata", {})
         query_text = meta.get("query", "")
         source = meta.get("source", "unknown")
+        retrieval_mode = str(meta.get("retrieval_mode", "hybrid") or "hybrid").lower()
+        graph_hops = meta.get("graph_hops", "—")
+
+        mode_icon = {
+            "graph": "🕸️",
+            "hybrid_graph": "🧠🕸️",
+            "hybrid": "🧠",
+        }.get(retrieval_mode, "🧠")
 
         # ── Expander title: show query text ────────────────────
         query_preview = (
             query_text[:40] + "…" if len(query_text) > 40 else query_text
         ) if query_text else "—"
         expander_title = (
-            f"🔍 \"{query_preview}\"  ·  {total_label}  ·  {started[:19]}"
+            f"{mode_icon} \"{query_preview}\"  ·  {retrieval_mode}  ·  {total_label}  ·  {started[:19]}"
         )
 
         with st.expander(expander_title, expanded=(idx == 0)):
@@ -75,6 +83,8 @@ def render() -> None:
                 st.markdown(f"**Source:** {source_emoji} `{source}`")
                 st.markdown(f"**Top-K:** `{meta.get('top_k', '—')}`")
                 st.markdown(f"**Collection:** `{meta.get('collection', '—')}`")
+                st.markdown(f"**Mode:** `{retrieval_mode}`")
+                st.markdown(f"**Graph Hops:** `{graph_hops}`")
 
             st.divider()
 
@@ -84,36 +94,47 @@ def render() -> None:
 
             dense_d = (stages_by_name.get("dense_retrieval", {}).get("data") or {})
             sparse_d = (stages_by_name.get("sparse_retrieval", {}).get("data") or {})
+            graph_d = (stages_by_name.get("graph_retrieval", {}).get("data") or {})
             fusion_d = (stages_by_name.get("fusion", {}).get("data") or {})
             rerank_d = (stages_by_name.get("rerank", {}).get("data") or {})
 
             dense_count = dense_d.get("result_count", 0)
             sparse_count = sparse_d.get("result_count", 0)
+            graph_count = graph_d.get("result_count", 0)
             fusion_count = fusion_d.get("result_count", 0)
             rerank_count = rerank_d.get("output_count", 0)
 
-            rc1, rc2, rc3, rc4, rc5 = st.columns(5)
+            rc1, rc2, rc3, rc4, rc5, rc6 = st.columns(6)
             with rc1:
                 st.metric("Dense Hits", dense_count)
             with rc2:
                 st.metric("Sparse Hits", sparse_count)
             with rc3:
-                st.metric("Fused", fusion_count or (dense_count + sparse_count))
+                st.metric("Graph Hits", graph_count)
             with rc4:
-                st.metric("After Rerank", rerank_count if rerank_d else "—")
+                st.metric("Fused", fusion_count or (dense_count + sparse_count + graph_count))
             with rc5:
+                st.metric("After Rerank", rerank_count if rerank_d else "—")
+            with rc6:
                 st.metric("Total Time", total_label)
 
             # ── Diagnostic hints ───────────────────────────────
             _render_diagnostics(
-                stages_by_name, dense_d, sparse_d, fusion_d, rerank_d,
-                dense_count, sparse_count,
+                stages_by_name, dense_d, sparse_d, graph_d, fusion_d, rerank_d,
+                dense_count, sparse_count, graph_count, retrieval_mode,
             )
 
             st.divider()
 
             # ── 3. Stage timing waterfall ──────────────────────
-            main_stage_names = ("query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "rerank")
+            main_stage_names = (
+                "query_processing",
+                "dense_retrieval",
+                "sparse_retrieval",
+                "graph_retrieval",
+                "fusion",
+                "rerank",
+            )
             main_timings = [t for t in timings if t["stage_name"] in main_stage_names]
             if main_timings:
                 st.markdown("#### ⏱️ Stage Timings")
@@ -139,6 +160,8 @@ def render() -> None:
                 tab_defs.append(("🟦 Dense Retrieval", "dense_retrieval"))
             if "sparse_retrieval" in stages_by_name:
                 tab_defs.append(("🟨 Sparse Retrieval", "sparse_retrieval"))
+            if "graph_retrieval" in stages_by_name:
+                tab_defs.append(("🕸️ Graph Retrieval", "graph_retrieval"))
             if "fusion" in stages_by_name:
                 tab_defs.append(("🟩 Fusion (RRF)", "fusion"))
             if "rerank" in stages_by_name:
@@ -160,6 +183,8 @@ def render() -> None:
                             _render_retrieval_stage(data, "Dense", trace_idx=idx)
                         elif key == "sparse_retrieval":
                             _render_retrieval_stage(data, "Sparse", trace_idx=idx)
+                        elif key == "graph_retrieval":
+                            _render_retrieval_stage(data, "Graph", trace_idx=idx)
                         elif key == "fusion":
                             _render_fusion_stage(data, trace_idx=idx)
                         elif key == "rerank":
@@ -175,10 +200,13 @@ def _render_diagnostics(
     stages_by_name: Dict[str, Any],
     dense_d: Dict[str, Any],
     sparse_d: Dict[str, Any],
+    graph_d: Dict[str, Any],
     fusion_d: Dict[str, Any],
     rerank_d: Dict[str, Any],
     dense_count: int,
     sparse_count: int,
+    graph_count: int,
+    retrieval_mode: str,
 ) -> None:
     """Render diagnostic hints about missing or errored pipeline stages."""
     hints: list = []
@@ -201,21 +229,45 @@ def _render_diagnostics(
             "BM25 index may be empty or not yet built for this collection.",
         ))
 
+    # Graph errors / empty
+    graph_err = graph_d.get("error", "")
+    graph_enabled_mode = retrieval_mode in {"graph", "hybrid_graph"}
+    if graph_err:
+        hints.append(("error", f"**Graph Retrieval failed:** {graph_err}"))
+    elif graph_enabled_mode and "graph_retrieval" in stages_by_name and graph_count == 0:
+        hints.append((
+            "warning",
+            "Graph Retrieval returned **0 results**. Try reducing query specificity or use `hybrid_graph` mode.",
+        ))
+    elif graph_enabled_mode and "graph_retrieval" not in stages_by_name:
+        hints.append((
+            "warning",
+            "Graph mode is enabled for this trace but `graph_retrieval` stage was not recorded.",
+        ))
+
     # Fusion missing
     if "fusion" not in stages_by_name:
-        if dense_count > 0 and sparse_count > 0:
+        active_count = sum([1 if dense_count > 0 else 0, 1 if sparse_count > 0 else 0, 1 if graph_count > 0 else 0])
+        if active_count > 1:
             hints.append(("info", "Fusion stage was not recorded even though both retrievers returned results."))
-        elif dense_count == 0 or sparse_count == 0:
-            only_source = "Dense" if dense_count > 0 else ("Sparse" if sparse_count > 0 else "neither")
+        elif active_count <= 1:
+            if dense_count > 0:
+                only_source = "Dense"
+            elif sparse_count > 0:
+                only_source = "Sparse"
+            elif graph_count > 0:
+                only_source = "Graph"
+            else:
+                only_source = "neither"
             hints.append((
                 "info",
                 f"**Fusion (RRF) skipped:** only {only_source} retrieval returned results. "
-                "Fusion requires both Dense and Sparse results to merge.",
+                "Fusion requires at least two non-empty retrieval routes.",
             ))
 
     # Rerank missing
     if "rerank" not in stages_by_name:
-        if dense_count > 0 or sparse_count > 0:
+        if dense_count > 0 or sparse_count > 0 or graph_count > 0:
             hints.append((
                 "info",
                 "**Rerank skipped:** reranker is not enabled or not configured. "
@@ -223,7 +275,7 @@ def _render_diagnostics(
             ))
 
     # All results empty
-    if dense_count == 0 and sparse_count == 0:
+    if dense_count == 0 and sparse_count == 0 and graph_count == 0:
         hints.append((
             "warning",
             "**No results found.** The collection may be empty, or the query "
@@ -337,7 +389,16 @@ def _evaluate_single_trace(
         # Re-run retrieval
         collection = meta.get("collection", "default")
         top_k = meta.get("top_k", 10)
-        chunks = _retrieve_chunks(settings, query, top_k, collection)
+        retrieval_mode = str(meta.get("retrieval_mode", "hybrid") or "hybrid").lower()
+        graph_hops = meta.get("graph_hops")
+        chunks = _retrieve_chunks(
+            settings,
+            query,
+            top_k,
+            collection,
+            retrieval_mode=retrieval_mode,
+            graph_hops=graph_hops,
+        )
 
         if not chunks:
             return {"error": "No chunks retrieved — is data indexed?"}
@@ -380,12 +441,15 @@ def _retrieve_chunks(
     query: str,
     top_k: int,
     collection: str,
+    retrieval_mode: str = "hybrid",
+    graph_hops: Optional[int] = None,
 ) -> list:
     """Re-run HybridSearch + Rerank to retrieve chunks for evaluation."""
     try:
         from src.core.query_engine.hybrid_search import create_hybrid_search
         from src.core.query_engine.query_processor import QueryProcessor
         from src.core.query_engine.dense_retriever import create_dense_retriever
+        from src.core.query_engine.graph_retriever import GraphRetriever
         from src.core.query_engine.sparse_retriever import create_sparse_retriever
         from src.core.query_engine.reranker import create_core_reranker
         from src.ingestion.storage.bm25_indexer import BM25Indexer
@@ -409,19 +473,31 @@ def _retrieve_chunks(
             vector_store=vector_store,
         )
         sparse_retriever.default_collection = collection
+        bm25_indexer.load(collection=collection)
+        graph_retriever = GraphRetriever(
+            settings=settings,
+            bm25_indexer=bm25_indexer,
+            vector_store=vector_store,
+        )
         query_processor = QueryProcessor()
         hybrid_search = create_hybrid_search(
             settings=settings,
             query_processor=query_processor,
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
+            graph_retriever=graph_retriever,
         )
 
         # Retrieve more candidates if rerank is enabled
         reranker = create_core_reranker(settings=settings)
         initial_top_k = top_k * 2 if reranker.is_enabled else top_k
 
-        results = hybrid_search.search(query=query, top_k=initial_top_k)
+        results = hybrid_search.search(
+            query=query,
+            top_k=initial_top_k,
+            retrieval_mode=retrieval_mode,
+            graph_hops=graph_hops,
+        )
         results = results if isinstance(results, list) else results.results
 
         # Apply reranking if enabled
@@ -528,6 +604,9 @@ def _render_fusion_stage(data: Dict[str, Any], *, trace_idx: int = 0) -> None:
         st.metric("Fused Results", data.get("result_count", 0))
 
     st.markdown(f"**Top-K:** `{data.get('top_k', '—')}`")
+    st.markdown(f"**Retrieval Mode:** `{data.get('retrieval_mode', '—')}`")
+    if data.get("weights"):
+        st.markdown(f"**Fusion Weights:** `{data.get('weights')}`")
 
     chunks = data.get("chunks", [])
     if chunks:

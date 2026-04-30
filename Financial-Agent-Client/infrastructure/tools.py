@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import traceback
 from datetime import timedelta
 from pathlib import Path
@@ -24,12 +25,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Resolve paths relative to the repo root (parent of Financial-Agent-Client)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 RAG_SERVER_PATH = Path(
-    r"C:\Users\Lenovo\Desktop\gaoren\gaoren\Modular RAG MCP Server\MODULAR-RAG-MCP-SERVER\src\mcp_server\server.py"
+    os.getenv(
+        "RAG_SERVER_PATH",
+        str(_REPO_ROOT / "MODULAR-RAG-MCP-SERVER" / "src" / "mcp_server" / "server.py"),
+    )
 )
+
+def _default_rag_python() -> str:
+    """Find the best Python exe for running the RAG server subprocess."""
+    candidates = [
+        _REPO_ROOT / ".venv_server" / "Scripts" / "python.exe",
+        _REPO_ROOT / "MODULAR-RAG-MCP-SERVER" / ".venv" / "Scripts" / "python.exe",
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return sys.executable  # fallback: same Python as the client
+
 RAG_PYTHON_PATH = Path(
-    r"C:\Users\Lenovo\Desktop\gaoren\gaoren\Modular RAG MCP Server\MODULAR-RAG-MCP-SERVER\.venv\Scripts\python.exe"
+    os.getenv("RAG_PYTHON_PATH", _default_rag_python())
 )
 RAG_TIMEOUT_SECONDS = 90
 TAVILY_TIMEOUT_SECONDS = 20

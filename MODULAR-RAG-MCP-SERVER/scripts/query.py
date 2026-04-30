@@ -36,10 +36,6 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# Ensure project root is in path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from src.core.settings import load_settings
 from src.core.query_engine.query_processor import QueryProcessor
 from src.core.query_engine.hybrid_search import create_hybrid_search

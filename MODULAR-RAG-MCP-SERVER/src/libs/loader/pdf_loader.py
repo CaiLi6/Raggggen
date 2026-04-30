@@ -128,7 +128,7 @@ class PdfLoader(BaseLoader):
                 if images_metadata:
                     metadata["images"] = images_metadata
             except Exception as e:
-                logger.warning(
+                logger.error(
                     f"Image extraction failed for {path}, continuing with text-only: {e}"
                 )
         

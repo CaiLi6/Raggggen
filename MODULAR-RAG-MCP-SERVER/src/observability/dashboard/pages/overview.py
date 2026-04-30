@@ -93,6 +93,32 @@ def render() -> None:
         line_count = sum(1 for _ in traces_path.open(encoding="utf-8"))
         if line_count > 0:
             st.metric("Total traces", line_count)
+
+            # Query mode breakdown helps distinguish classic RAG vs Graph-RAG runs.
+            try:
+                from src.observability.dashboard.services.trace_service import TraceService
+
+                query_traces = TraceService().list_traces(trace_type="query", limit=500)
+                if query_traces:
+                    mode_counts = {"hybrid": 0, "graph": 0, "hybrid_graph": 0, "unknown": 0}
+                    for tr in query_traces:
+                        mode = str((tr.get("metadata") or {}).get("retrieval_mode", "hybrid") or "hybrid").lower()
+                        if mode not in mode_counts:
+                            mode = "unknown"
+                        mode_counts[mode] += 1
+
+                    st.markdown("**Query Mode Distribution**")
+                    m1, m2, m3, m4 = st.columns(4)
+                    with m1:
+                        st.metric("Hybrid", mode_counts["hybrid"])
+                    with m2:
+                        st.metric("Graph", mode_counts["graph"])
+                    with m3:
+                        st.metric("Hybrid+Graph", mode_counts["hybrid_graph"])
+                    with m4:
+                        st.metric("Unknown", mode_counts["unknown"])
+            except Exception:
+                pass
         else:
             st.info("No traces recorded yet. Run a query or ingestion first.")
     else:

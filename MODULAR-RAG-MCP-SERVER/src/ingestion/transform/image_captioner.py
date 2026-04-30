@@ -27,7 +27,10 @@ logger = get_logger(__name__)
 IMAGE_PLACEHOLDER_PATTERN = re.compile(r'\[IMAGE:\s*([^\]]+)\]')
 
 # Default max parallel workers for Vision API calls
-DEFAULT_MAX_WORKERS = 3  # Lower than text LLM due to higher cost/latency
+DEFAULT_MAX_WORKERS = 1  # Sequential to avoid API rate limits (429)
+
+# Minimum image dimension to send to Vision API (avoids HTTP 400 on tiny icons)
+MIN_IMAGE_DIMENSION = 100  # pixels
 
 
 class ImageCaptioner(BaseTransform):
@@ -114,6 +117,17 @@ class ImageCaptioner(BaseTransform):
         if not img_path or not Path(img_path).exists():
             logger.warning(f"Image path not found: {img_path}")
             return None
+
+        # Skip images that are too small (avoids HTTP 400 from Vision API)
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(img_path) as img:
+                w, h = img.size
+            if w < MIN_IMAGE_DIMENSION or h < MIN_IMAGE_DIMENSION:
+                logger.debug(f"Skipping small image {img_id} ({w}x{h}px)")
+                return None
+        except Exception:
+            pass  # If PIL fails, try the API anyway
         
         try:
             image_input = ImageInput(path=img_path)

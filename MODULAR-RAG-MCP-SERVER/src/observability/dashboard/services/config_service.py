@@ -81,16 +81,34 @@ class ConfigService:
         ))
 
         # Retrieval
+        retrieval_model = "dense + sparse + RRF"
+        if getattr(s, "graph", None):
+            graph_mode = s.graph.mode
+            retrieval_model = f"dense + sparse + graph + RRF ({graph_mode})"
+
         cards.append(ComponentInfo(
             name="Retrieval",
             provider="hybrid",
-            model="dense + sparse + RRF",
+            model=retrieval_model,
             extra={
                 "dense_top_k": s.retrieval.dense_top_k,
                 "sparse_top_k": s.retrieval.sparse_top_k,
                 "fusion_top_k": s.retrieval.fusion_top_k,
             },
         ))
+
+        # Graph-RAG
+        if getattr(s, "graph", None):
+            cards.append(ComponentInfo(
+                name="Graph RAG",
+                provider="enabled" if s.graph.enabled else "disabled",
+                model=s.graph.mode,
+                extra={
+                    "top_k": s.graph.top_k,
+                    "hops": s.graph.hops,
+                    "weight_in_fusion": s.graph.weight_in_fusion,
+                },
+            ))
 
         # Rerank
         cards.append(ComponentInfo(

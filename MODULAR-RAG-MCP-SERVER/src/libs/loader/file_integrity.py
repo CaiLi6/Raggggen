@@ -173,35 +173,33 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         # Create parent directories if needed
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Connect and initialize schema
-        conn = sqlite3.connect(self.db_path)
-        try:
-            # Enable WAL mode for concurrent access
-            conn.execute("PRAGMA journal_mode=WAL")
-            
-            # Create table if not exists
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ingestion_history (
-                    file_hash TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    collection TEXT,
-                    error_msg TEXT,
-                    processed_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-            
-            # Create index on status for faster queries
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_status 
-                ON ingestion_history(status)
-            """)
-            
-            conn.commit()
-        finally:
-            conn.close()
+
+        # Open a persistent connection (check_same_thread=False for Streamlit)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+
+        # Enable WAL mode for concurrent access
+        self._conn.execute("PRAGMA journal_mode=WAL")
+
+        # Create table if not exists
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS ingestion_history (
+                file_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                status TEXT NOT NULL,
+                collection TEXT,
+                error_msg TEXT,
+                processed_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Create index on status for faster queries
+        self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_status 
+            ON ingestion_history(status)
+        """)
+
+        self._conn.commit()
     
     def compute_sha256(self, file_path: str) -> str:
         """Compute SHA256 hash of file using chunked reading.
@@ -252,20 +250,14 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         Returns:
             True if file has status='success', False otherwise.
         """
-        conn = sqlite3.connect(self.db_path)
-        try:
-            cursor = conn.execute(
-                "SELECT status FROM ingestion_history WHERE file_hash = ?",
-                (file_hash,)
-            )
-            result = cursor.fetchone()
-            
-            if result is None:
-                return False
-            
-            return result[0] == "success"
-        finally:
-            conn.close()
+        cursor = self._conn.execute(
+            "SELECT status FROM ingestion_history WHERE file_hash = ?",
+            (file_hash,)
+        )
+        result = cursor.fetchone()
+        if result is None:
+            return False
+        return result[0] == "success"
     
     def mark_success(
         self, 
@@ -286,19 +278,15 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             RuntimeError: If database operation fails.
         """
         now = datetime.now(timezone.utc).isoformat()
-        
-        conn = sqlite3.connect(self.db_path)
         try:
             # Check if record exists to preserve processed_at
-            cursor = conn.execute(
+            cursor = self._conn.execute(
                 "SELECT processed_at FROM ingestion_history WHERE file_hash = ?",
                 (file_hash,)
             )
             result = cursor.fetchone()
-            
             if result:
-                # Update existing record
-                conn.execute("""
+                self._conn.execute("""
                     UPDATE ingestion_history 
                     SET file_path = ?,
                         status = 'success',
@@ -308,18 +296,14 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
                     WHERE file_hash = ?
                 """, (file_path, collection, now, file_hash))
             else:
-                # Insert new record
-                conn.execute("""
+                self._conn.execute("""
                     INSERT INTO ingestion_history 
                     (file_hash, file_path, status, collection, error_msg, processed_at, updated_at)
                     VALUES (?, ?, 'success', ?, NULL, ?, ?)
                 """, (file_hash, file_path, collection, now, now))
-            
-            conn.commit()
+            self._conn.commit()
         except sqlite3.Error as e:
-            raise RuntimeError(f"Failed to mark success for {file_path}: {e}")
-        finally:
-            conn.close()
+            raise RuntimeError(f"Failed to mark success for {file_path}: {e}") from e
     
     def mark_failed(
         self, 
@@ -340,19 +324,15 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             RuntimeError: If database operation fails.
         """
         now = datetime.now(timezone.utc).isoformat()
-        
-        conn = sqlite3.connect(self.db_path)
         try:
             # Check if record exists to preserve processed_at
-            cursor = conn.execute(
+            cursor = self._conn.execute(
                 "SELECT processed_at FROM ingestion_history WHERE file_hash = ?",
                 (file_hash,)
             )
             result = cursor.fetchone()
-            
             if result:
-                # Update existing record
-                conn.execute("""
+                self._conn.execute("""
                     UPDATE ingestion_history 
                     SET file_path = ?,
                         status = 'failed',
@@ -361,18 +341,14 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
                     WHERE file_hash = ?
                 """, (file_path, error_msg, now, file_hash))
             else:
-                # Insert new record
-                conn.execute("""
+                self._conn.execute("""
                     INSERT INTO ingestion_history 
                     (file_hash, file_path, status, collection, error_msg, processed_at, updated_at)
                     VALUES (?, ?, 'failed', NULL, ?, ?, ?)
                 """, (file_hash, file_path, error_msg, now, now))
-            
-            conn.commit()
+            self._conn.commit()
         except sqlite3.Error as e:
-            raise RuntimeError(f"Failed to mark failure for {file_path}: {e}")
-        finally:
-            conn.close()
+            raise RuntimeError(f"Failed to mark failure for {file_path}: {e}") from e
 
     def remove_record(self, file_hash: str) -> bool:
         """Remove an ingestion record by its file hash.
@@ -383,18 +359,15 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         Returns:
             True if a record was deleted, False if not found.
         """
-        conn = sqlite3.connect(self.db_path)
         try:
-            cursor = conn.execute(
+            cursor = self._conn.execute(
                 "DELETE FROM ingestion_history WHERE file_hash = ?",
                 (file_hash,),
             )
-            conn.commit()
+            self._conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error as e:
-            raise RuntimeError(f"Failed to remove record {file_hash}: {e}")
-        finally:
-            conn.close()
+            raise RuntimeError(f"Failed to remove record {file_hash}: {e}") from e
 
     def list_processed(
         self, collection: Optional[str] = None
@@ -408,8 +381,7 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             List of dicts with keys: file_hash, file_path, collection,
             processed_at, updated_at.
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        self._conn.row_factory = sqlite3.Row
         try:
             query = (
                 "SELECT file_hash, file_path, collection, processed_at, updated_at "
@@ -421,7 +393,7 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
                 params.append(collection)
             query += " ORDER BY processed_at ASC"
 
-            cursor = conn.execute(query, params)
+            cursor = self._conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
         finally:
-            conn.close()
+            self._conn.row_factory = None

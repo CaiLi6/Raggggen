@@ -30,9 +30,11 @@ def main() -> None:
         str(app_path),
         "--server.port", str(args.port),
         "--server.address", args.host,
+        "--server.fileWatcherType", "none",
     ]
+    project_root = Path(__file__).resolve().parent.parent
     print(f"Starting Dashboard: {' '.join(cmd)}")
-    subprocess.run(cmd)
+    subprocess.run(cmd, cwd=project_root)
 
 
 if __name__ == "__main__":

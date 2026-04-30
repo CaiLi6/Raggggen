@@ -284,3 +284,63 @@ def _register_builtin_text_providers() -> None:
 
 
 _register_builtin_text_providers()
+
+
+'''
+=======================================================================
+                   [ 阶段一：系统启动时 (Module Load) ]
+=======================================================================
+
+1. Python 首次读取 llm_factory.py 文件
+             |
+2. 自动执行文件最底部的两个注册函数:
+   _register_vision_providers() 
+   _register_builtin_text_providers()
+             |
+             v
++-------------------------------------------------------------------+
+|                       LLMFactory 的内存空间                       |
+|                                                                   |
+|  _PROVIDERS (文本模型字典)        _VISION_PROVIDERS (视觉模型字典)|
+|  +-----------------------+        +--------------------------+    |
+|  | "openai" : OpenAILLM  |        | "azure" : AzureVisionLLM |    |
+|  | "azure"  : AzureLLM   |        | "qwen"  : QwenVisionLLM  |    |
+|  | "ollama" : OllamaLLM  |        | ...                      |    |
+|  +-----------------------+        +--------------------------+    |
++-------------------------------------------------------------------+
+             |
+(系统启动完成，字典已准备好。程序静静等待，直到业务模块需要使用大模型)
+             |
+
+=======================================================================
+                   [ 阶段二：运行时调用 (Runtime Execution) ]
+=======================================================================
+
+业务代码 (例如：需要大模型来做 Chunk Refinement)
+             |
+             | 发起请求：LLMFactory.create(settings)
+             v
++-------------------------------------------------------------------+
+|                        LLMFactory.create() 方法                   |
+|                                                                   |
+|  步骤 1: 提取配置名称                                             |
+|  provider_name = settings.llm.provider  (假设读到的是 "azure")    |
+|             |                                                     |
+|             v                                                     |
+|  步骤 2: 查字典 (Lookup)                                          |
+|  去 _PROVIDERS 字典里找 Key 为 "azure" 的值                       |
+|  provider_class = _PROVIDERS.get("azure")                         |
+|  (此时拿到了 AzureLLM 这个蓝图/类)                                |
+|             |                                                     |
+|             v                                                     |
+|  步骤 3: 实例化对象 (Instantiation)                               |
+|  执行代码: provider_class(settings=settings)                      |
+|  也就是在后台执行了: AzureLLM(settings=settings)                  |
++-------------------------------------------------------------------+
+             |
+             | 返回创建好的真实对象 (Object)
+             v
+业务代码拿到 <AzureLLM object>，完全不需要知道它是怎么创建的
+直接调用它的标准化方法：
+my_llm.chat(messages)
+'''

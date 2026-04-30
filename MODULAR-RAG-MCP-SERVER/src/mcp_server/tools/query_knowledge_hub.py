@@ -66,6 +66,17 @@ TOOL_INPUT_SCHEMA: Dict[str, Any] = {
             "type": "string",
             "description": "Optional collection name to limit the search scope.",
         },
+        "retrieval_mode": {
+            "type": "string",
+            "description": "Retrieval strategy: hybrid | graph | hybrid_graph",
+            "enum": ["hybrid", "graph", "hybrid_graph"],
+        },
+        "graph_hops": {
+            "type": "integer",
+            "description": "Optional graph expansion depth when graph retrieval is enabled.",
+            "minimum": 1,
+            "maximum": 3,
+        },
     },
     "required": ["query"],
 }
@@ -167,6 +178,7 @@ class QueryKnowledgeHubTool:
         from src.core.query_engine.query_processor import QueryProcessor
         from src.core.query_engine.hybrid_search import create_hybrid_search
         from src.core.query_engine.dense_retriever import create_dense_retriever
+        from src.core.query_engine.graph_retriever import GraphRetriever
         from src.core.query_engine.sparse_retriever import create_sparse_retriever
         from src.core.query_engine.reranker import create_core_reranker
         from src.ingestion.storage.bm25_indexer import BM25Indexer
@@ -205,6 +217,13 @@ class QueryKnowledgeHubTool:
             vector_store=vector_store,
         )
         sparse_retriever.default_collection = collection
+
+        bm25_indexer.load(collection=collection)
+        graph_retriever = GraphRetriever(
+            settings=self.settings,
+            bm25_indexer=bm25_indexer,
+            vector_store=vector_store,
+        )
         
         query_processor = QueryProcessor()
         self._hybrid_search = create_hybrid_search(
@@ -212,6 +231,7 @@ class QueryKnowledgeHubTool:
             query_processor=query_processor,
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
+            graph_retriever=graph_retriever,
         )
         
         self._current_collection = collection
@@ -241,6 +261,8 @@ class QueryKnowledgeHubTool:
         query: str,
         top_k: Optional[int] = None,
         collection: Optional[str] = None,
+        retrieval_mode: Optional[str] = None,
+        graph_hops: Optional[int] = None,
     ) -> MCPToolResponse:
         """Execute the query_knowledge_hub tool.
         
@@ -269,13 +291,17 @@ class QueryKnowledgeHubTool:
         
         logger.info(
             f"Executing query_knowledge_hub: query='{query[:50]}...', "
-            f"top_k={effective_top_k}, collection={effective_collection}, rerank_enabled={rerank_enabled}"
+            f"top_k={effective_top_k}, collection={effective_collection}, "
+            f"retrieval_mode={retrieval_mode or 'default'}, graph_hops={graph_hops}, "
+            f"rerank_enabled={rerank_enabled}"
         )
         
         trace = TraceContext(trace_type="query")
         trace.metadata["query"] = query[:200]
         trace.metadata["top_k"] = effective_top_k
         trace.metadata["collection"] = effective_collection
+        trace.metadata["retrieval_mode"] = retrieval_mode or "default"
+        trace.metadata["graph_hops"] = graph_hops
         trace.metadata["source"] = "mcp"
         total_t0 = time.monotonic()
         init_timeout_s = self._get_int_env("RAG_INIT_TIMEOUT_SECONDS", 120)
@@ -314,6 +340,8 @@ class QueryKnowledgeHubTool:
             results = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._perform_search, query, effective_top_k, rerank_enabled, trace,
+                    retrieval_mode,
+                    graph_hops,
                 ),
                 timeout=_stage_timeout(search_timeout_s),
             )
@@ -460,6 +488,8 @@ class QueryKnowledgeHubTool:
         top_k: int,
         rerank_enabled: bool,
         trace: Optional[Any] = None,
+        retrieval_mode: Optional[str] = None,
+        graph_hops: Optional[int] = None,
     ) -> List[RetrievalResult]:
         """Perform hybrid search.
         
@@ -484,6 +514,8 @@ class QueryKnowledgeHubTool:
                 filters=None,
                 trace=trace,
                 return_details=False,
+                retrieval_mode=retrieval_mode,
+                graph_hops=graph_hops,
             )
             return results if isinstance(results, list) else results.results
         except Exception as e:
@@ -589,6 +621,8 @@ async def query_knowledge_hub_handler(
     query: str,
     top_k: int = 5,
     collection: Optional[str] = None,
+    retrieval_mode: Optional[str] = None,
+    graph_hops: Optional[int] = None,
 ) -> types.CallToolResult:
     """Handler function for MCP tool registration.
     
@@ -613,6 +647,8 @@ async def query_knowledge_hub_handler(
             query=query,
             top_k=top_k,
             collection=collection,
+            retrieval_mode=retrieval_mode,
+            graph_hops=graph_hops,
         )
         
         # Use to_mcp_content() which handles multimodal (text + images)

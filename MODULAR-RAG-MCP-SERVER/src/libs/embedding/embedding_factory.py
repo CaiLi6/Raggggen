@@ -7,12 +7,15 @@ of different backends without code changes.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from src.libs.embedding.base_embedding import BaseEmbedding
 
 if TYPE_CHECKING:
     from src.core.settings import Settings
+
+_logger = logging.getLogger(__name__)
 
 
 class EmbeddingFactory:
@@ -115,26 +118,26 @@ def _register_builtin_providers() -> None:
     try:
         from src.libs.embedding.openai_embedding import OpenAIEmbedding
         EmbeddingFactory.register_provider("openai", OpenAIEmbedding)
-    except ImportError:
-        pass  # OpenAI provider not available
-    
+    except ImportError as e:
+        _logger.debug("OpenAI embedding provider not available: %s", e)
+
     try:
         from src.libs.embedding.azure_embedding import AzureEmbedding
         EmbeddingFactory.register_provider("azure", AzureEmbedding)
-    except ImportError:
-        pass  # Azure provider not available
-    
+    except ImportError as e:
+        _logger.debug("Azure embedding provider not available: %s", e)
+
     try:
         from src.libs.embedding.ollama_embedding import OllamaEmbedding
         EmbeddingFactory.register_provider("ollama", OllamaEmbedding)
-    except ImportError:
-        pass  # Ollama provider not available
+    except ImportError as e:
+        _logger.debug("Ollama embedding provider not available: %s", e)
 
     try:
         from src.libs.embedding.qwen_embedding import QwenEmbedding
         EmbeddingFactory.register_provider("qwen", QwenEmbedding)
-    except ImportError:
-        pass  # Qwen provider not available
+    except ImportError as e:
+        _logger.debug("Qwen embedding provider not available: %s", e)
 
 
 # Register providers when module is imported

@@ -95,8 +95,8 @@ class DataService:
             )
             return sorted(c.name for c in client.list_collections())
         except Exception as exc:
-            logger.warning("Failed to list collections: %s", exc)
-            return ["default"]
+            logger.error("Failed to list collections: %s", exc)
+            return []
 
     def list_documents(
         self, collection: Optional[str] = None

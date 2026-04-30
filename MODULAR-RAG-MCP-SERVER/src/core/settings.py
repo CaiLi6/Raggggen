@@ -132,6 +132,15 @@ class RetrievalSettings:
 
 
 @dataclass(frozen=True)
+class GraphSettings:
+    enabled: bool = False
+    mode: str = "hybrid"  # Options: hybrid, graph, hybrid_graph
+    top_k: int = 20
+    hops: int = 1
+    weight_in_fusion: float = 1.0
+
+
+@dataclass(frozen=True)
 class RerankSettings:
     enabled: bool
     provider: str
@@ -188,6 +197,7 @@ class Settings:
     observability: ObservabilitySettings
     ingestion: Optional[IngestionSettings] = None
     vision_llm: Optional[VisionLLMSettings] = None
+    graph: GraphSettings = GraphSettings()
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Settings":
@@ -227,6 +237,34 @@ class Settings:
                 azure_endpoint=vision_llm.get("azure_endpoint"),
                 deployment_name=vision_llm.get("deployment_name"),
                 base_url=vision_llm.get("base_url"),
+            )
+
+        graph_settings = GraphSettings()
+        if "graph" in data:
+            graph = _require_mapping(data, "graph", "settings")
+            enabled = graph.get("enabled", False)
+            mode = graph.get("mode", "hybrid")
+            top_k = graph.get("top_k", 20)
+            hops = graph.get("hops", 1)
+            weight_in_fusion = graph.get("weight_in_fusion", 1.0)
+
+            if not isinstance(enabled, bool):
+                raise SettingsError("Expected boolean for field: graph.enabled")
+            if not isinstance(mode, str) or mode not in {"hybrid", "graph", "hybrid_graph"}:
+                raise SettingsError("Expected graph.mode to be one of: hybrid, graph, hybrid_graph")
+            if not isinstance(top_k, int) or top_k <= 0:
+                raise SettingsError("Expected positive integer for field: graph.top_k")
+            if not isinstance(hops, int) or hops <= 0:
+                raise SettingsError("Expected positive integer for field: graph.hops")
+            if not isinstance(weight_in_fusion, (int, float)) or weight_in_fusion < 0:
+                raise SettingsError("Expected non-negative number for field: graph.weight_in_fusion")
+
+            graph_settings = GraphSettings(
+                enabled=enabled,
+                mode=mode,
+                top_k=top_k,
+                hops=hops,
+                weight_in_fusion=float(weight_in_fusion),
             )
 
         settings = cls(
@@ -281,6 +319,7 @@ class Settings:
             ),
             ingestion=ingestion_settings,
             vision_llm=vision_llm_settings,
+            graph=graph_settings,
         )
 
         return settings
