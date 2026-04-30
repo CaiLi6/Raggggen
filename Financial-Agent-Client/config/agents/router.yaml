@@ -1,0 +1,6 @@
+name: router
+role: Router Agent
+prompt: router
+allowed_tools: []
+output_contract: route_plan
+safety_boundary: research_only

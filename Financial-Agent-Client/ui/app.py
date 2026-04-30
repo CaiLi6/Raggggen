@@ -1,82 +1,83 @@
-"""Thin Streamlit UI for the financial multi-agent workflow."""
+"""Thin Streamlit UI for FinAgent OS Client."""
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
-import streamlit as st
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv() -> None:
+        return None
 
-# 加载根目录下的 .env 文件到系统环境变量中
-load_dotenv()
-
-from langchain_core.messages import HumanMessage
-
-from core.evaluator import AgentEvaluator
-from core.graph import workflow
+from gateway.app_gateway import AppGateway
+from gateway.request import GatewayRequest
 
 
-st.set_page_config(page_title="Financial Agent Client", layout="wide")
-st.title("Financial Multi-Agent Research")
-st.caption("LangGraph + MCP Client (Thin UI)")
+def render_app() -> None:
+    import streamlit as st
 
-thread_id = st.text_input("Thread ID", value=f"ui-{uuid.uuid4().hex[:8]}")
-query = st.text_area("请输入你的投研问题", value="请结合财报和舆情分析特斯拉近期投资价值")
-enable_deep_eval = st.sidebar.checkbox("开启 LLM 深度评估 (耗时增加约 10s)", value=False)
+    load_dotenv()
+    st.set_page_config(page_title="FinAgent OS Client", layout="wide")
+    st.title("FinAgent OS Client")
+    st.caption("Local-first financial research Agent OS")
 
-if st.button("开始分析", type="primary"):
-    with st.status("执行中", expanded=True) as status:
-        st.write("Router 正在识别意图...")
-        app = workflow.compile()
-        st.write("Agent A 正在通过 MCP 工具检索历史上下文...")
-        st.write("Agent B 正在通过 Tavily 检索实时舆情...")
-        result = asyncio.run(
-            app.ainvoke(
-                {"messages": [HumanMessage(content=query)]},
-                config={"configurable": {"thread_id": thread_id}},
-            )
+    with st.sidebar:
+        thread_id = st.text_input("Thread ID", value=f"ui-{uuid.uuid4().hex[:8]}")
+        collection = st.text_input("Collection", value="default")
+        mock_tools = st.toggle("Mock tools", value=False)
+        enable_eval = st.toggle("Run lightweight eval", value=False)
+
+    query = st.text_area("Research question", value="请结合财报和舆情分析特斯拉近期投资价值", height=120)
+
+    if st.button("开始分析", type="primary"):
+        gateway = AppGateway()
+        request = GatewayRequest.from_ui(
+            query=query,
+            thread_id=thread_id,
+            collection=collection,
+            enable_eval=enable_eval,
+            metadata={"mock_tools": mock_tools},
         )
-        st.write("Agent C 正在聚合生成报告...")
-        status.update(label="执行完成", state="complete")
+        with st.status("执行中", expanded=True) as status:
+            st.write("Gateway 正在创建 trace 和 session...")
+            response = gateway.handle(request)
+            st.write("Runtime 已完成角色编排和报告生成。")
+            status.update(label="执行完成", state="complete")
 
-    messages = result.get("messages", [])
-    report_text = ""
-    if messages:
-        report_text = str(messages[-1].content).strip()
-        st.markdown(report_text)
-    else:
-        st.warning("未生成报告，请检查日志。")
+        st.markdown(response.markdown)
 
-    can_download = bool(report_text)
-    st.download_button(
-        label="💾 下载 Markdown 研报",
-        data=report_text if can_download else "",
-        file_name=f"Financial_Report_{thread_id}.md",
-        mime="text/markdown",
-        disabled=not can_download,
-        help="仅当报告非空时可下载。",
-    )
-    if not can_download:
-        st.caption("报告内容为空，下载按钮已灰态禁用。")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Trace", response.trace_id)
+        col2.metric("Tools", len(response.tool_records))
+        col3.metric("Warnings", len(response.warnings))
 
-    if enable_deep_eval and can_download:
-        with st.spinner("正在执行 LLM 深度评估..."):
-            historical_context = "\n\n".join([str(x) for x in result.get("historical_context", [])])
-            realtime_news = "\n\n".join([str(x) for x in result.get("realtime_news", [])])
-            evaluator = AgentEvaluator()
-            eval_result = evaluator.evaluate(
-                query=query,
-                historical_context=historical_context,
-                realtime_news=realtime_news,
-                final_report=report_text,
-            )
+        with st.expander("Tool Records", expanded=False):
+            for record in response.tool_records:
+                st.json(record.__dict__)
 
-        with st.expander("LLM 深度评估结果", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Faithfulness", f"{eval_result.faithfulness.score}/10")
-                st.caption(eval_result.faithfulness.reasoning)
-            with col2:
-                st.metric("Answer Relevance", f"{eval_result.answer_relevance.score}/10")
-                st.caption(eval_result.answer_relevance.reasoning)
+        if response.warnings:
+            with st.expander("Warnings", expanded=True):
+                for warning in response.warnings:
+                    st.warning(warning)
+
+        if response.errors:
+            with st.expander("Errors", expanded=True):
+                for error in response.errors:
+                    st.error(error)
+
+        if response.metadata.get("evaluation"):
+            with st.expander("Evaluation", expanded=True):
+                st.json(response.metadata["evaluation"])
+
+        st.download_button(
+            label="下载 Markdown 研报",
+            data=response.markdown,
+            file_name=f"Financial_Report_{response.thread_id}.md",
+            mime="text/markdown",
+            disabled=not bool(response.markdown),
+        )
+
+
+if __name__ == "__main__":
+    render_app()

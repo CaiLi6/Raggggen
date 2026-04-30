@@ -1,0 +1,7 @@
+name: fundamental
+role: Fundamental Analyst
+prompt: fundamental
+allowed_tools:
+  - rag_search
+output_contract: fundamental_findings
+safety_boundary: research_only

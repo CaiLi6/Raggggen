@@ -1,24 +1,22 @@
 # FinAgent RAG Suite
 
-合体名称：**FinAgent RAG Suite**（FinAgent RAG 套件）
+This repository combines two local-first financial research components:
 
-概述
-----------------
-本仓库整合了两个互补项目：
+- `Financial-Agent-Client/`: FinAgent OS Client for UI / CLI research orchestration, source-aware reports, safety guardrails and trace records.
+- `MODULAR-RAG-MCP-SERVER/`: modular RAG + MCP server for ingestion, retrieval and knowledge hub tools.
 
-- `Financial-Agent-Client/`：多 agent 金融/股票分析客户端与演示。
-- `MODULAR-RAG-MCP-SERVER/`：模块化 RAG + MCP 服务器，提供检索、LLM 接入与协议层。
+The client is research-only. It does not execute real trades, read brokerage credentials or make final investment decisions.
 
-目的
-----------------
-将客户端分析能力与模块化 RAG 服务结合，便于在本地或云端快速搭建金融领域的问答、分析与自动化工作流演示环境。
+## Quick Links
 
-快速跳转
-----------------
-- Financial-Agent-Client: [Financial-Agent-Client/README.md](Financial-Agent-Client/README.md)
-- MODULAR-RAG-MCP-SERVER: [MODULAR-RAG-MCP-SERVER/README.md](MODULAR-RAG-MCP-SERVER/README.md)
+- Client docs: [Financial-Agent-Client/README.md](Financial-Agent-Client/README.md)
+- Client implementation plan: [Financial-Agent-Client/plan.md](Financial-Agent-Client/plan.md)
+- RAG server docs: [MODULAR-RAG-MCP-SERVER/README.md](MODULAR-RAG-MCP-SERVER/README.md)
 
-下一步建议
-----------------
-- 为仓库添加许可证文件（例如 MIT 或 Apache-2.0）。
-- 在 GitHub 上创建远程仓库并推送本地代码。需要我帮你初始化 Git 并提交吗？
+## Client Smoke
+
+```powershell
+cd Financial-Agent-Client
+python .\scripts\main.py --query "分析 AAPL 的基本面和舆情" --mock-tools
+python -m pytest -q -m "not llm and not external"
+```

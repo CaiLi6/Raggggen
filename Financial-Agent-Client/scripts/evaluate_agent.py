@@ -1,8 +1,7 @@
-"""Batch evaluator for CI/CD using the core AgentEvaluator module."""
+"""Batch evaluator for FinAgent OS Client."""
 
 from __future__ import annotations
 
-import asyncio
 import argparse
 import json
 import sys
@@ -10,22 +9,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.evaluator import AgentEvaluator
-from core.graph import workflow
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv() -> None:
+        return None
 
-
-def _last_report(state: dict[str, Any]) -> str:
-    messages = list(state.get("messages", []))
-    if not messages:
-        return ""
-    return str(messages[-1].content)
+from gateway.app_gateway import AppGateway
+from gateway.request import GatewayRequest
 
 
 def _normalize_queries(data: Any) -> list[str]:
@@ -45,104 +40,57 @@ def _normalize_queries(data: Any) -> list[str]:
 def load_queries(cases_file: str | None) -> list[str]:
     if not cases_file:
         return [
-            "请结合财报和舆情分析合合信息的投资价值",
-            "请分析特斯拉近期基本面与舆情变化",
+            "请结合财报和舆情分析特斯拉近期投资价值",
             "请评估宁德时代短中期投资风险与机会",
+            "分析 AAPL 的基本面和短期情绪",
         ]
-
     path = Path(cases_file)
-    content = json.loads(path.read_text(encoding="utf-8"))
-    queries = _normalize_queries(content)
+    queries = _normalize_queries(json.loads(path.read_text(encoding="utf-8")))
     if not queries:
-        raise ValueError("测试集为空，JSON 应为字符串列表或包含 query 字段的对象列表。")
+        raise ValueError("cases file must contain strings or objects with a query field")
     return queries
 
 
-async def run_batch_eval(queries: list[str]) -> dict[str, Any]:
-    app = workflow.compile()
-    evaluator = AgentEvaluator()
+def run_batch_eval(queries: list[str], mock_tools: bool = True) -> dict[str, Any]:
+    gateway = AppGateway()
     results: list[dict[str, Any]] = []
-
-    total_start = time.perf_counter()
-    for idx, query in enumerate(queries, start=1):
+    start_all = time.perf_counter()
+    for index, query in enumerate(queries, start=1):
         start = time.perf_counter()
-        state = await app.ainvoke(
-            {"messages": [HumanMessage(content=query)]},
-            config={"configurable": {"thread_id": f"eval-{idx}"}},
+        response = gateway.handle(
+            GatewayRequest.from_cli(
+                query=query,
+                thread_id=f"eval-{index}",
+                enable_eval=True,
+                mock_tools=mock_tools,
+            )
         )
-        latency_seconds = time.perf_counter() - start
-
-        historical_context = "\n\n".join([str(x) for x in state.get("historical_context", [])])
-        realtime_news = "\n\n".join([str(x) for x in state.get("realtime_news", [])])
-        report_text = _last_report(state)
-
-        score = evaluator.evaluate(
-            query=query,
-            historical_context=historical_context,
-            realtime_news=realtime_news,
-            final_report=report_text,
-        )
-
         results.append(
             {
                 "query": query,
-                "latency_seconds": latency_seconds,
-                "faithfulness": score.faithfulness.score,
-                "faithfulness_reasoning": score.faithfulness.reasoning,
-                "answer_relevance": score.answer_relevance.score,
-                "answer_relevance_reasoning": score.answer_relevance.reasoning,
+                "trace_id": response.trace_id,
+                "latency_seconds": round(time.perf_counter() - start, 4),
+                "errors": response.errors,
+                "warnings": response.warnings,
+                "evaluation": response.metadata.get("evaluation"),
             }
         )
-
-    total_latency = time.perf_counter() - total_start
-    avg_faithfulness = sum(item["faithfulness"] for item in results) / max(len(results), 1)
-    avg_relevance = sum(item["answer_relevance"] for item in results) / max(len(results), 1)
-    avg_latency = sum(item["latency_seconds"] for item in results) / max(len(results), 1)
-
     return {
         "count": len(results),
-        "avg_faithfulness": avg_faithfulness,
-        "avg_answer_relevance": avg_relevance,
-        "avg_latency_seconds": avg_latency,
-        "total_latency_seconds": total_latency,
+        "total_latency_seconds": round(time.perf_counter() - start_all, 4),
         "results": results,
     }
 
 
-def _print_batch_report(summary: dict[str, Any]) -> None:
-    print("=" * 72)
-    print("Financial Agent Batch Evaluation Report")
-    print("=" * 72)
-    print(f"Cases: {summary['count']}")
-    print(f"Total Latency: {summary['total_latency_seconds']:.2f}s")
-    print(f"Average Latency: {summary['avg_latency_seconds']:.2f}s")
-    print(f"Average Faithfulness: {summary['avg_faithfulness']:.2f}/10")
-    print(f"Average Answer Relevance: {summary['avg_answer_relevance']:.2f}/10")
-    print("-" * 72)
-    for idx, item in enumerate(summary["results"], start=1):
-        print(f"[{idx}] Query: {item['query']}")
-        print(f"    Latency: {item['latency_seconds']:.2f}s")
-        print(f"    Faithfulness: {item['faithfulness']}/10")
-        print(f"    Reasoning: {item['faithfulness_reasoning']}")
-        print(f"    Answer Relevance: {item['answer_relevance']}/10")
-        print(f"    Reasoning: {item['answer_relevance_reasoning']}")
-        print("-" * 72)
-    print("=" * 72)
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Batch evaluate financial agent quality")
-    parser.add_argument(
-        "--cases-file",
-        default=None,
-        help="JSON file path. Supports ['q1','q2'] or [{'query':'...'}]",
-    )
+    parser = argparse.ArgumentParser(description="Batch evaluate FinAgent OS Client")
+    parser.add_argument("--cases-file", default=None)
+    parser.add_argument("--real-tools", action="store_true", help="Use real adapters instead of mocks")
     args = parser.parse_args()
 
     load_dotenv()
-    queries = load_queries(args.cases_file)
-    summary = asyncio.run(run_batch_eval(queries))
-    _print_batch_report(summary)
+    summary = run_batch_eval(load_queries(args.cases_file), mock_tools=not args.real_tools)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

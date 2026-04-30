@@ -1,0 +1,6 @@
+name: chief_analyst
+role: Chief Analyst
+prompt: chief_analyst
+allowed_tools: []
+output_contract: research_report
+safety_boundary: research_only

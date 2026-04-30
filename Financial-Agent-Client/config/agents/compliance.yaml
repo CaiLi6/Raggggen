@@ -1,0 +1,6 @@
+name: compliance
+role: Compliance Reviewer
+prompt: compliance
+allowed_tools: []
+output_contract: compliance_review
+safety_boundary: research_only

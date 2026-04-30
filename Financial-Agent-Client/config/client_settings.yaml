@@ -1,0 +1,20 @@
+app:
+  name: FinAgent OS Client
+  default_collection: default
+  default_output_format: markdown
+  token_budget: 6000
+llm:
+  provider: dashscope
+  router_model: qwen-turbo
+  report_model: qwen-plus
+  use_mock_without_key: true
+tools:
+  mock_external: false
+  rag_top_k: 5
+  rag_timeout_seconds: 90
+  news_max_results: 3
+  news_timeout_seconds: 20
+observability:
+  trace_dir: logs
+  client_trace_file: client_traces.jsonl
+  write_jsonl: true

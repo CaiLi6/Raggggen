@@ -1,44 +1,81 @@
-# Financial-Agent-Client
+# FinAgent OS Client
 
-简要说明
-----------------
-这是一个以多 agent 为中心的金融/股票分析客户端示例工程。它包含若干 agent 节点、演示脚本和一个简单 UI（`ui/app.py`），用于演示如何组合多个分析 agent 来完成信息检索、模型推理与结果汇总。
+`Financial-Agent-Client` is a local-first financial research Agent OS client. It orchestrates research roles, calls approved tools through a Tool Bus, builds source-aware context, and returns a structured report with risks, citations, trace id and a non-investment-advice disclosure.
 
-主要功能
-----------------
-- 多 agent 协作框架与路由（见 `core/router.py`、`agents/`）。
-- 演示脚本：`run_app.py`、`testollama.py`。
-- 集成常见工具与评估脚本（`scripts/`）。
+It is research-only. It does not place orders, read brokerage credentials, transfer money, or make final investment decisions for the user.
 
-快速开始
-----------------
-1. 创建并激活虚拟环境：
+## Architecture
+
+- `gateway/`: unified UI / CLI / test entry through `AppGateway`.
+- `runtime/`: financial research runtime and compatibility workflow adapter.
+- `agents/`: router, fundamental, sentiment, risk, chief analyst and compliance roles.
+- `tools/`: Tool Bus, policy checks, RAG MCP, news, market data and evaluator adapters.
+- `context/`: `ContextBundle`, source mapping and missing-data assembly.
+- `reports/`: structured report schema, renderer and validators.
+- `safety/`: research-only guardrails and default disclosures.
+- `observability/`: trace events, tool records and JSONL audit writing.
+- `config/`: settings, tool policy, agent profiles and prompt files.
+
+`MODULAR-RAG-MCP-SERVER/` remains the RAG base. The client only accesses it through adapter boundaries, not by importing server internals.
+
+## Quick Start
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-2. 安装依赖：
-
-```powershell
+cd Financial-Agent-Client
 pip install -r requirements.txt
 ```
 
-3. 运行演示：
+Run a deterministic local smoke test with mock tools:
 
 ```powershell
-python run_app.py
+python .\scripts\main.py --query "分析 AAPL 的基本面和舆情" --mock-tools
 ```
 
-目录结构（概要）
-----------------
-- `agents/`：agent 定义与节点。
-- `core/`：路由、状态与评估逻辑。
-- `infrastructure/`：MCP 客户端、工具适配器。
-- `ui/`：示例前端（Flask/Tk 等轻量演示）。
+Run the Streamlit UI:
 
-注意事项
-----------------
-- 请在运行前确认虚拟环境与依赖已正确安装。
-- 根据需要配置外部 LLM 与密钥（不应直接提交到仓库）。
+```powershell
+python .\run_app.py
+```
+
+Run tests:
+
+```powershell
+python -m pytest -q -m "not llm and not external"
+```
+
+Run batch evaluation with mock tools:
+
+```powershell
+python .\scripts\evaluate_agent.py
+```
+
+## Configuration
+
+- `config/client_settings.yaml`: app, tool, model and trace settings.
+- `config/tool_policy.yaml`: allowed and denied tools/actions.
+- `config/agents/*.yaml`: role profiles and allowed tools.
+- `config/prompts/*.md`: prompt templates.
+
+Environment variable overrides are supported for `DASHSCOPE_MODEL`, `DASHSCOPE_ROUTER_MODEL`, `FINAGENT_MOCK_TOOLS`, `RAG_SERVER_PATH` and `RAG_PYTHON_PATH`.
+
+Do not commit API keys, account credentials, passwords, verification codes or trading secrets.
+
+## Safety Boundary
+
+Allowed:
+
+- Generate research reports, risk summaries and source-backed follow-up tasks.
+- Produce mock market observations and paper-trading research plans when clearly marked as simulated.
+- Degrade gracefully when RAG, news, market data or evaluator tools fail.
+
+Prohibited:
+
+- Submit, cancel or modify real orders.
+- Read or request trading passwords, verification codes or payment credentials.
+- Promise returns, guarantee stop-loss outcomes, or claim an investment is risk-free.
+
+Every final report must include risks, source notes, data gaps when applicable, and the non-investment-advice disclosure.
+
+## Legacy Compatibility
+
+Older imports such as `core.graph.workflow`, `core.router.intent_router` and `agents.nodes` remain available as compatibility shims. New code should use `gateway.app_gateway.AppGateway`.

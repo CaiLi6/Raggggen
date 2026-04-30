@@ -1,16 +1,7 @@
-"""Global state contract for the multi-agent investment workflow."""
+"""Compatibility state export."""
 
-import operator
-from typing import Annotated, Literal, Sequence, TypedDict
+from __future__ import annotations
 
-from langchain_core.messages import BaseMessage
+from runtime.state import AgentRuntimeState as AgentState
 
-
-class AgentState(TypedDict, total=False):
-    """Shared graph state with reducer-friendly fields for fan-out/fan-in."""
-
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    research_intent: Literal["fundamental", "sentiment", "comprehensive", "unknown"]
-    historical_context: Annotated[list[str], operator.add]
-    realtime_news: Annotated[list[str], operator.add]
-    errors: Annotated[list[str], operator.add]
+__all__ = ["AgentState"]

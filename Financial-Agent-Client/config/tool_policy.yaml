@@ -1,0 +1,19 @@
+allowed_tools:
+  - rag_search
+  - news_search
+  - market_data
+  - evaluate_report
+denied_tools:
+  - broker_order
+  - broker_cancel_order
+  - bank_transfer
+  - payment
+  - credential_reader
+prohibited_actions:
+  - real_trade
+  - submit_order
+  - cancel_order
+  - modify_real_account
+  - request_password
+confirm_required:
+  - paper_trading_plan

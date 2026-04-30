@@ -1,0 +1,6 @@
+name: risk
+role: Risk Analyst
+prompt: risk
+allowed_tools: []
+output_contract: risk_findings
+safety_boundary: research_only

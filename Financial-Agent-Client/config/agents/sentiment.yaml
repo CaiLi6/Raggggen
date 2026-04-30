@@ -1,0 +1,7 @@
+name: sentiment
+role: Sentiment Analyst
+prompt: sentiment
+allowed_tools:
+  - news_search
+output_contract: sentiment_findings
+safety_boundary: research_only
