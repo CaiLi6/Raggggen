@@ -68,5 +68,5 @@
 ## 8. Git Delivery
 
 - [x] Review `git status --short`.
-- [ ] Commit the refactor.
-- [ ] Push `codex/finagent-os-refactor` to GitHub.
+- [x] Commit the refactor.
+- [x] Push `codex/finagent-os-refactor` to GitHub.
