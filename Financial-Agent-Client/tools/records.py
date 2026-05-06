@@ -23,3 +23,4 @@ class ToolCallRecord:
     error_code: str | None = None
     error_message: str | None = None
     role: str | None = None
+    attempt_count: int = 1

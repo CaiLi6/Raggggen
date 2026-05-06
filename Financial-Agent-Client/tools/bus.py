@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
+
 from tools.policy import ToolPolicy
 from tools.records import ToolCallRecord, utc_now_iso
 
@@ -22,6 +24,19 @@ class ToolExecutionResult:
     record: ToolCallRecord
 
 
+@dataclass
+class RetryConfig:
+    """Retry configuration for transient tool failures."""
+    max_attempts: int = 3
+    wait_min: float = 0.5
+    wait_max: float = 4.0
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry on network/OS errors but never on timeouts (TimeoutError is OSError subclass)."""
+    return isinstance(exc, OSError) and not isinstance(exc, TimeoutError)
+
+
 def _summarize(value: Any, limit: int = 500) -> str:
     try:
         text = json.dumps(value, ensure_ascii=False, default=str)
@@ -33,8 +48,9 @@ def _summarize(value: Any, limit: int = 500) -> str:
 class ToolBus:
     """Single audited entry point for all tool calls."""
 
-    def __init__(self, policy: ToolPolicy | None = None):
+    def __init__(self, policy: ToolPolicy | None = None, retry_config: RetryConfig | None = None):
         self.policy = policy or ToolPolicy()
+        self.retry_config = retry_config or RetryConfig()
         self._handlers: dict[str, ToolHandler] = {}
         self.records: list[ToolCallRecord] = []
 
@@ -83,7 +99,7 @@ class ToolBus:
             return ToolExecutionResult(data={"error": "TOOL_NOT_REGISTERED", "message": record.error_message}, record=record)
 
         try:
-            data = await self._invoke(handler, args, timeout_seconds=timeout_seconds)
+            data, attempt_count = await self._invoke_with_retry(handler, args, timeout_seconds=timeout_seconds)
             status = "error" if isinstance(data, dict) and data.get("error") else "success"
             record = self._record(
                 name=name,
@@ -95,6 +111,7 @@ class ToolBus:
                 output_summary=_summarize(data),
                 error_code=str(data.get("error")) if isinstance(data, dict) and data.get("error") else None,
                 error_message=str(data.get("message")) if isinstance(data, dict) and data.get("message") else None,
+                attempt_count=attempt_count,
             )
             return ToolExecutionResult(data=data, record=record)
         except TimeoutError as exc:
@@ -121,6 +138,30 @@ class ToolBus:
                 error_message=str(exc),
             )
             return ToolExecutionResult(data={"error": "UNKNOWN_ERROR", "message": str(exc)}, record=record)
+
+    async def _invoke_with_retry(
+        self,
+        handler: ToolHandler,
+        args: dict[str, Any],
+        timeout_seconds: float | None,
+    ) -> tuple[Any, int]:
+        """Invoke handler with automatic retry on transient network errors.
+
+        Returns a (data, attempt_count) tuple so callers can record retries in the audit log.
+        TimeoutError and non-transient exceptions bypass retry and propagate immediately.
+        """
+        attempt_count = 0
+        cfg = self.retry_config
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(cfg.max_attempts),
+            wait=wait_exponential(multiplier=1, min=cfg.wait_min, max=cfg.wait_max),
+            retry=retry_if_exception(_is_retryable),
+            reraise=True,
+        ):
+            with attempt:
+                attempt_count = attempt.retry_state.attempt_number
+                data = await self._invoke(handler, args, timeout_seconds)
+        return data, attempt_count
 
     async def _invoke(
         self,
@@ -152,6 +193,7 @@ class ToolBus:
         output_summary: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        attempt_count: int = 1,
     ) -> ToolCallRecord:
         record = ToolCallRecord(
             tool_name=name,
@@ -164,6 +206,7 @@ class ToolBus:
             error_code=error_code,
             error_message=error_message,
             role=role,
+            attempt_count=attempt_count,
         )
         self.records.append(record)
         return record

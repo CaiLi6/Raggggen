@@ -63,6 +63,7 @@ def test_tool_call_record_defaults() -> None:
     assert record.error_code is None
     assert record.error_message is None
     assert record.role is None
+    assert record.attempt_count == 1
 
 
 def test_tool_call_record_with_role() -> None:
