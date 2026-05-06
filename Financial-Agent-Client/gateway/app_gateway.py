@@ -23,7 +23,11 @@ class AppGateway:
         session_manager: SessionManager | None = None,
     ):
         self.config_loader = config_loader or ConfigLoader()
-        self.session_manager = session_manager or SessionManager()
+        if session_manager is None:
+            settings = self.config_loader.load_settings()
+            db_path = settings.get("session", {}).get("db_path")
+            session_manager = SessionManager(db_path=db_path)
+        self.session_manager = session_manager
 
     def handle(self, request: GatewayRequest) -> GatewayResponse:
         return asyncio.run(self.ahandle(request))
